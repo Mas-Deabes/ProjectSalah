@@ -2,6 +2,13 @@ import { requireOptionalNativeModule } from 'expo';
 
 type AuthStatus = 'approved' | 'denied' | 'notDetermined' | 'unknown';
 
+// One prayer's lock time. Must match the PrayerSchedule Record in Swift.
+export type PrayerSchedule = {
+  name: string;
+  hour: number;
+  minute: number;
+};
+
 // Describes the Swift functions in PrayerLockModule.swift,
 // so TypeScript knows their names, inputs and return types.
 type PrayerLockNative = {
@@ -9,6 +16,8 @@ type PrayerLockNative = {
   requestAuthorization(): Promise<void>;
   allowedAppCount(): number;
   pickApps(): Promise<number>;
+  schedulePrayers(prayers: PrayerSchedule[]): number;
+  activeSchedules(): string[];
   lockNow(): void;
   unlock(): void;
   readLog(): string;

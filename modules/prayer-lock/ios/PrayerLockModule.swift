@@ -4,12 +4,19 @@ import ManagedSettings
 import DeviceActivity
 import SwiftUI
 
-// These names must match the monitor extension exactly (checkpoint 7b).
+// These names must match the monitor extension exactly.
 let appGroup = "group.com.sif.projectsalah"
 let selectionKey = "allowedSelection"
 
 extension ManagedSettingsStore.Name {
     static let prayer = Self("prayer")
+}
+
+// One prayer's lock time, sent from TypeScript.
+struct PrayerSchedule: Record {
+    @Field var name: String = ""
+    @Field var hour: Int = 0
+    @Field var minute: Int = 0
 }
 
 // The bridge between TypeScript and Swift.
@@ -52,6 +59,17 @@ public class PrayerLockModule: Module {
             presenter.present(host!, animated: true)
         }.runOnQueue(.main)
 
+        // Replaces all schedules with one per prayer.
+        // Returns how many were registered.
+        Function("schedulePrayers") { (prayers: [PrayerSchedule]) -> Int in
+            PrayerScheduler.schedule(prayers)
+        }
+
+        // Names of the schedules iOS is currently holding.
+        Function("activeSchedules") { () -> [String] in
+            DeviceActivityCenter().activities.map(\.rawValue)
+        }
+
         Function("lockNow") {
             PrayerLock.lock()
         }
@@ -67,6 +85,43 @@ public class PrayerLockModule: Module {
         Function("clearLog") {
             Log.clear()
         }
+    }
+}
+
+enum PrayerScheduler {
+    // Apple rejects schedules shorter than 15 minutes.
+    static let intervalMinutes = 15
+
+    static func schedule(_ prayers: [PrayerSchedule]) -> Int {
+        let center = DeviceActivityCenter()
+        center.stopMonitoring()   // no names = stop every schedule
+
+        var count = 0
+        for prayer in prayers {
+            let startMinutes = prayer.hour * 60 + prayer.minute
+            let endMinutes = startMinutes + intervalMinutes
+
+            // A schedule can't run past midnight, so skip anything that would.
+            if endMinutes >= 24 * 60 {
+                Log.write("Skipped \(prayer.name): too close to midnight")
+                continue
+            }
+
+            let schedule = DeviceActivitySchedule(
+                intervalStart: DateComponents(hour: prayer.hour, minute: prayer.minute),
+                intervalEnd: DateComponents(hour: endMinutes / 60, minute: endMinutes % 60),
+                repeats: false
+            )
+
+            do {
+                try center.startMonitoring(DeviceActivityName(prayer.name), during: schedule)
+                count += 1
+                Log.write("Scheduled \(prayer.name) lock at \(String(format: "%02d:%02d", prayer.hour, prayer.minute))")
+            } catch {
+                Log.write("Failed to schedule \(prayer.name): \(error.localizedDescription)")
+            }
+        }
+        return count
     }
 }
 

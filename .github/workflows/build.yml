@@ -13,7 +13,7 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Show Xcode version
         run: xcodebuild -version
 
@@ -38,8 +38,6 @@ jobs:
         run: |
           cd ios
           pod install
-          echo "--- Contents of ios/ after pod install ---"
-          ls
 
       - name: Build without signing
         run: |
@@ -51,13 +49,26 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: Show what's inside the app
+        run: |
+          APP=build/Build/Products/Release-iphoneos/ProjectSalah.app
+          echo "--- PlugIns ---"
+          ls "$APP/PlugIns"
+
       - name: Add entitlements with ldid
         run: |
-          ldid -Sci/ProjectSalah.entitlements \
-            build/Build/Products/Release-iphoneos/ProjectSalah.app/ProjectSalah
+          APP=build/Build/Products/Release-iphoneos/ProjectSalah.app
+          ldid -Sci/ProjectSalahMonitor.entitlements \
+            "$APP/PlugIns/ProjectSalahMonitor.appex/ProjectSalahMonitor"
+          ldid -Sci/ProjectSalah.entitlements "$APP/ProjectSalah"
 
       - name: Show entitlements
-        run: ldid -e build/Build/Products/Release-iphoneos/ProjectSalah.app/ProjectSalah
+        run: |
+          APP=build/Build/Products/Release-iphoneos/ProjectSalah.app
+          echo "--- Extension ---"
+          ldid -e "$APP/PlugIns/ProjectSalahMonitor.appex/ProjectSalahMonitor"
+          echo "--- App ---"
+          ldid -e "$APP/ProjectSalah"
 
       - name: Package as .tipa and .ipa
         run: |
