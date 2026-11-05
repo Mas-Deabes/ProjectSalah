@@ -7,9 +7,15 @@ import SwiftUI
 // These names must match the monitor extension exactly.
 let appGroup = "group.com.sif.projectsalah"
 let selectionKey = "allowedSelection"
+let tableKey = "scheduleTable"
 
 extension ManagedSettingsStore.Name {
     static let prayer = Self("prayer")
+}
+
+extension DeviceActivityName {
+    // Wakes the extension just after midnight to register that day's prayers.
+    static let daily = Self("Daily")
 }
 
 // One prayer's lock time, sent from TypeScript.
@@ -59,8 +65,14 @@ public class PrayerLockModule: Module {
             presenter.present(host!, animated: true)
         }.runOnQueue(.main)
 
-        // Replaces all schedules with one per prayer.
-        // Returns how many were registered.
+        // Saves the timetable (JSON text) for the extension to read at midnight.
+        Function("saveScheduleTable") { (json: String) in
+            UserDefaults(suiteName: appGroup)?.set(json, forKey: tableKey)
+            Log.write("Saved timetable (\(json.count) characters)")
+        }
+
+        // Replaces the prayer schedules with these ones, and makes sure
+        // the Daily schedule exists. Returns how many prayers were registered.
         Function("schedulePrayers") { (prayers: [PrayerSchedule]) -> Int in
             PrayerScheduler.schedule(prayers)
         }
@@ -94,7 +106,13 @@ enum PrayerScheduler {
 
     static func schedule(_ prayers: [PrayerSchedule]) -> Int {
         let center = DeviceActivityCenter()
-        center.stopMonitoring()   // no names = stop every schedule
+
+        // Stop every schedule except Daily.
+        // (Calling stopMonitoring with an empty list would stop everything, including Daily.)
+        let old = center.activities.filter { $0 != .daily }
+        if !old.isEmpty {
+            center.stopMonitoring(old)
+        }
 
         var count = 0
         for prayer in prayers {
@@ -121,7 +139,27 @@ enum PrayerScheduler {
                 Log.write("Failed to schedule \(prayer.name): \(error.localizedDescription)")
             }
         }
+
+        ensureDaily(center)
         return count
+    }
+
+    // Registers the repeating 00:01–00:16 schedule, if it isn't already.
+    static func ensureDaily(_ center: DeviceActivityCenter) {
+        if center.activities.contains(.daily) { return }
+
+        let schedule = DeviceActivitySchedule(
+            intervalStart: DateComponents(hour: 0, minute: 1),
+            intervalEnd: DateComponents(hour: 0, minute: 16),
+            repeats: true
+        )
+
+        do {
+            try center.startMonitoring(.daily, during: schedule)
+            Log.write("Daily schedule registered for 00:01")
+        } catch {
+            Log.write("Failed to register Daily: \(error.localizedDescription)")
+        }
     }
 }
 

@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { Button, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { formatTime, getNextPrayer, getPrayers, GRACE_MINUTES } from './src/prayerTimes';
+import {
+  buildScheduleTable,
+  formatTime,
+  getNextPrayer,
+  getPrayers,
+  GRACE_MINUTES,
+} from './src/prayerTimes';
 import PrayerLock, { PrayerSchedule } from './modules/prayer-lock';
 
 // Turns today's remaining prayers into schedules for Swift.
@@ -16,13 +22,16 @@ function upcomingSchedules(now: Date): PrayerSchedule[] {
     }));
 }
 
-// A test lock 2–3 minutes from now, starting on a whole minute.
-function testSchedule(now: Date): PrayerSchedule {
+// A test schedule 2–3 minutes from now, starting on a whole minute.
+function testSchedule(now: Date, name: string): PrayerSchedule {
   const start = new Date(now);
   start.setSeconds(0, 0);
   start.setMinutes(start.getMinutes() + 3);
-  return { name: 'Test', hour: start.getHours(), minute: start.getMinutes() };
+  return { name, hour: start.getHours(), minute: start.getMinutes() };
 }
+
+// Schedules that shouldn't be cancelled by reopening the app.
+const TEST_NAMES = ['Test', 'DailyTest'];
 
 export default function App() {
   const [now, setNow] = useState(new Date());
@@ -37,12 +46,12 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // When the app opens, schedule today's remaining prayers.
-  // Skipped while a test lock is waiting, so reopening the app doesn't cancel it.
+  // When the app opens, save the timetable and schedule today's remaining prayers.
+  // Skipped while a test is waiting, so reopening the app doesn't cancel it.
   useEffect(() => {
     if (!PrayerLock || PrayerLock.authorizationStatus() !== 'approved') return;
-    if (PrayerLock.activeSchedules().includes('Test')) return;
-    schedule(false);
+    if (PrayerLock.activeSchedules().some((name) => TEST_NAMES.includes(name))) return;
+    schedule();
   }, []);
 
   const prayers = getPrayers(now);
@@ -57,13 +66,19 @@ export default function App() {
     setLog(PrayerLock.readLog());
   };
 
-  const schedule = (includeTest: boolean) => {
+  // Saves the timetable, then registers today's remaining prayers,
+  // plus a test schedule if one is given.
+  const schedule = (testName?: string) => {
     if (!PrayerLock) return;
     const current = new Date();
+
+    PrayerLock.saveScheduleTable(JSON.stringify(buildScheduleTable()));
+
     const list = upcomingSchedules(current);
-    if (includeTest) list.push(testSchedule(current));
+    if (testName) list.push(testSchedule(current, testName));
+
     const count = PrayerLock.schedulePrayers(list);
-    setMessage(`Scheduled ${count} lock(s). Close the app and wait.`);
+    setMessage(`Scheduled ${count} lock(s).`);
     refresh();
   };
 
@@ -125,8 +140,9 @@ export default function App() {
             <Text style={styles.label}>
               Active schedules: {active.length ? active.join(', ') : 'none'}
             </Text>
-            <Button title="Schedule today's prayers" onPress={() => schedule(false)} />
-            <Button title="Test lock in about 2 minutes" onPress={() => schedule(true)} />
+            <Button title="Schedule today's prayers" onPress={() => schedule()} />
+            <Button title="Test lock in about 2 minutes" onPress={() => schedule('Test')} />
+            <Button title="Test midnight job in about 2 minutes" onPress={() => schedule('DailyTest')} />
 
             <Button title="Lock now" color="#c62828" onPress={() => { PrayerLock?.lockNow(); refresh(); }} />
             <Button title="I've prayed" color="#2e7d32" onPress={() => { PrayerLock?.unlock(); refresh(); }} />

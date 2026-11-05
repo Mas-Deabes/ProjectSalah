@@ -16,6 +16,7 @@ type PrayerLockNative = {
   requestAuthorization(): Promise<void>;
   allowedAppCount(): number;
   pickApps(): Promise<number>;
+  saveScheduleTable(json: string): void;
   schedulePrayers(prayers: PrayerSchedule[]): number;
   activeSchedules(): string[];
   lockNow(): void;
