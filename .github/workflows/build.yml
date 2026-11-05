@@ -1,0 +1,62 @@
+name: Build iOS (TrollStore)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install packages
+        run: npm ci
+
+      - name: Install ldid
+        run: brew install ldid
+
+      - name: Generate native iOS project
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Build without signing
+        run: |
+          xcodebuild build \
+            -workspace ios/ProjectSalah.xcworkspace \
+            -scheme ProjectSalah \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Add entitlements with ldid
+        run: |
+          ldid -Sci/ProjectSalah.entitlements \
+            build/Build/Products/Release-iphoneos/ProjectSalah.app/ProjectSalah
+
+      - name: Show entitlements
+        run: ldid -e build/Build/Products/Release-iphoneos/ProjectSalah.app/ProjectSalah
+
+      - name: Package as .tipa and .ipa
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/ProjectSalah.app Payload/
+          zip -qr ProjectSalah.tipa Payload
+          cp ProjectSalah.tipa ProjectSalah.ipa
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          files: |
+            ProjectSalah.tipa
+            ProjectSalah.ipa
